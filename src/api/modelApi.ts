@@ -1,128 +1,56 @@
-// src/api/modelApi.ts
+const BASE_URL = import.meta.env.VITE_API_BASE || "http://localhost:8000/api";
+
+// Kiểu dữ liệu trả về từ API
 export type FeaturesResponse = {
   features: string[];
-  symptom_meta?: Record<string, any>;
-  advice?: Record<string, any>;
+  symptom_meta?: Record<string, { weight?: number; description?: string }>;
+  hotspot_regions?: string[];
+  hotspot_map?: Record<string, string[]>;
+};
+
+// Kiểu dữ liệu mới tương thích FE AnalysisResult
+export type AnalysisItem = {
+  topic: string;
+  related: string;
+  match_score: number;
+  description: string;
+  advice: string[];
+  warning_level: "low" | "medium" | "high";
+};
+
+export type SymptomFocusItem = {
+  symptom: string;
+  weight: number;
+  note: string;
 };
 
 export type PredictResponse = {
-  predictions?: Array<{
-    disease: string;
-    prob: number;
-    severity?: string;
-    urgency?: string;
-  }>;
-  alertPresent?: boolean;
-  symptom_meta?: Record<string, any>;
+  analysis: AnalysisItem[];
+  symptom_focus: SymptomFocusItem[];
 };
 
-const ENV_BASE = import.meta.env.VITE_API_BASE as string | undefined;
-
-// thử danh sách endpoint khả dĩ
-const CANDIDATES = [
-  ENV_BASE,
-  "http://localhost:8000",
-  "http://127.0.0.1:8000",
-  "http://localhost:5000",
-  "http://127.0.0.1:5000",
-].filter(Boolean) as string[];
-
-async function tryFetchJson(url: string) {
-  const res = await fetch(url, { method: "GET" });
-  const text = await res.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`Invalid JSON from ${url}. Status ${res.status}. Body: ${text}`);
-  }
-  if (!res.ok)
-    throw new Error(
-      `HTTP ${res.status} from ${url} - ${JSON.stringify(json).slice(0, 200)}`
-    );
-  return json;
-}
-
+// Lấy danh sách feature và meta
 export async function getModelFeatures(): Promise<FeaturesResponse> {
-  const paths = [
-    "/model/features",
-    "/api/model/features",
-    "/api/products/type",
-    "/model/features/",
-  ];
-  let lastErr: Error | null = null;
-
-  for (const base of CANDIDATES) {
-    for (const p of paths) {
-      const url = `${base.replace(/\/+$/, "")}${p.startsWith("/") ? p : "/" + p}`;
-      try {
-        const json = await tryFetchJson(url);
-        console.log(
-          "[modelApi] success fetch",
-          url,
-          json && Object.keys(json).slice(0, 10)
-        );
-        // Chuẩn hóa dữ liệu trả về
-        return {
-          features: json.features || json.data?.features || json || [],
-          symptom_meta: json.symptom_meta || json.symptomMeta || {},
-        } as FeaturesResponse;
-      } catch (err: unknown) {
-        if (err instanceof Error) {
-          lastErr = err;
-          console.warn(
-            "[modelApi] fetch fail",
-            url,
-            err.message?.slice?.(0, 200) || err
-          );
-        } else {
-          console.warn("[modelApi] fetch fail", url, err);
-        }
-        // thử endpoint tiếp theo
-      }
-    }
+  const res = await fetch(`${BASE_URL}/model/features`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch model features");
   }
-  throw new Error(
-    "All candidate endpoints failed. Last error: " + (lastErr?.message || lastErr)
-  );
+  const data = await res.json();
+  return data;
 }
 
-export async function predictApi(
-  symptoms: string[],
-  topK = 5
-): Promise<PredictResponse> {
-  const payload = { symptoms, topK };
-  let lastErr: Error | null = null;
+// Gọi API dự đoán
+export async function predictApi(symptoms: string[]): Promise<PredictResponse> {
+  const res = await fetch(`${BASE_URL}/model/predict`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symptoms }),
+  });
 
-  for (const base of CANDIDATES) {
-    const url = `${base.replace(/\/+$/, "")}/predict`;
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (!res.ok)
-        throw new Error(
-          `HTTP ${res.status} - ${JSON.stringify(json).slice(0, 200)}`
-        );
-      return json as PredictResponse;
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        lastErr = err;
-        console.warn(
-          "[modelApi] predict fail",
-          url,
-          err.message?.slice?.(0, 200) || err
-        );
-      } else {
-        console.warn("[modelApi] predict fail", url, err);
-      }
-    }
+  if (!res.ok) {
+    throw new Error("Failed to fetch predictions");
   }
 
-  throw new Error(
-    "Predict failed on all candidates. Last: " + (lastErr?.message || lastErr)
-  );
+  const data: PredictResponse = await res.json();
+  return data;
 }

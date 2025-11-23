@@ -1,134 +1,148 @@
-// src/Model/BodyPartInfo.tsx
-import React, { useEffect, useState } from "react";
-import { getModelFeatures, FeaturesResponse } from "../api/modelApi";
-import mapping from "../data/symptom_mapping.json";
+import React, { useMemo, useState, useEffect } from "react";
 
-interface Props {
-  selectedBodyPart: string | null;
-  onAddSymptom: (symptom: string) => void;
+interface SymptomMetaItem {
+  weight?: number;
+  description?: string;
 }
 
-const pretty = (s: string) => s.replace(/[_]+/g, " ");
+interface BodyPartInfoProps {
+  bodyPart?: string | null; // Vùng cơ thể đang chọn
+  features: string[]; // Danh sách triệu chứng từ backend
+  symptomMeta?: Record<string, SymptomMetaItem>; // Thông tin weight/description
+  hotspotRegions?: string[]; // Các vùng cơ thể nổi bật
+  hotspotMap?: Record<string, string[]>; // Map vùng cơ thể -> danh sách triệu chứng
+  onSelectSymptom: (symptom: string) => void; // Callback khi chọn triệu chứng
+}
 
-const FALLBACK = [
-  "itching",
-  "skin_rash",
-  "nodal_skin_eruptions",
-  "continuous_sneezing",
-  "shivering",
-  "chills",
-  "joint_pain",
-  "stomach_pain",
-  "acidity",
-  "vomiting",
-  "fatigue",
-  "cough",
-  "high_fever",
-  "headache",
-];
+const BodyPartInfo: React.FC<BodyPartInfoProps> = ({
+  bodyPart,
+  features,
+  symptomMeta = {},
+  hotspotRegions = [],
+  hotspotMap = {},
+  onSelectSymptom,
+}) => {
+  const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(10);
 
-const BodyPartInfo: React.FC<Props> = ({ selectedBodyPart, onAddSymptom }) => {
-  const [features, setFeatures] = useState<string[]>([]);
-  const [filter, setFilter] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [symptomMeta, setSymptomMeta] = useState<Record<string, any>>({});
-  const [error, setError] = useState<string | null>(null);
+  // Sắp xếp danh sách symptom
+  const allKeys = useMemo(() => features.sort(), [features]);
 
+  // Format dữ liệu triệu chứng
+  const formatted = useMemo(
+    () =>
+      allKeys.map((k) => ({
+        key: k,
+        label: k.replace(/_/g, " "),
+        meta: {
+          weight: symptomMeta[k]?.weight || 0,
+          description: symptomMeta[k]?.description || "",
+        },
+      })),
+    [allKeys, symptomMeta]
+  );
+
+  // Lọc theo query và vùng cơ thể nếu có
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list = formatted;
+
+    // Lọc theo hotspotMap nếu bodyPart được chọn
+    if (bodyPart && hotspotMap[bodyPart]) {
+      list = list.filter((item) => hotspotMap[bodyPart].includes(item.key));
+    }
+
+    // Lọc theo từ khóa tìm kiếm
+    return list.filter((item) => item.label.toLowerCase().includes(q));
+  }, [formatted, query, bodyPart, hotspotMap]);
+
+  // Reset số lượng hiển thị khi query thay đổi
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const data: FeaturesResponse = await getModelFeatures();
-        if (!mounted) return;
-        let feats: string[] = [];
-        if (Array.isArray(data.features)) feats = data.features;
-        else if (data && typeof data === "object") feats = Object.keys(data as any);
-        feats = feats.map((f) => String(f).trim().toLowerCase()).filter(Boolean);
-        if (feats.length === 0) {
-          console.warn("[BodyPartInfo] features empty -> use fallback");
-          feats = FALLBACK;
-        }
-        setFeatures(feats);
-        setSymptomMeta(data.symptom_meta || {});
-      } catch (err: any) {
-        console.error("[BodyPartInfo] getModelFeatures error:", err);
-        setError(String(err?.message || err));
-        setFeatures(FALLBACK);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const fLower = filter.trim().toLowerCase();
-
-  const getRegionForFeature = (en: string) => {
-    const m = (mapping as any).symptoms?.[en];
-    if (m && m.region) return String(m.region).trim().toLowerCase();
-    return "khác";
-  };
-
-  const selectedRegionNorm = (selectedBodyPart || "").trim().toLowerCase();
-
-  const visible = features.filter((f) => {
-    if (fLower) {
-      const fClean = f.replace(/[_]+/g, " ");
-      if (!(fClean.includes(fLower) || f.includes(fLower))) return false;
-    }
-    if (selectedRegionNorm) {
-      const featRegion = getRegionForFeature(f);
-      if (featRegion !== selectedRegionNorm) return false;
-    }
-    return true;
-  });
+    setVisibleCount(10);
+  }, [query]);
 
   return (
-    <div className="card body-info-card">
-      <h3>Danh sách triệu chứng {selectedBodyPart ? `- ${selectedBodyPart}` : ""}</h3>
+    <div className="body-info-card card">
+      {/* Header */}
+      <div className="flex justify-between items-start mb-3">
+        <div>
+          <h3 className="part-name">
+            {bodyPart
+              ? `Các triệu chứng liên quan đến: ${bodyPart}`
+              : "Danh sách các triệu chứng"}
+          </h3>
+          <p className="description small">
+            {bodyPart
+              ? `Triệu chứng được lọc theo vùng: ${bodyPart}`
+              : hotspotRegions.length > 0
+              ? `Các vùng cơ thể nổi bật: ${hotspotRegions.join(", ")}`
+              : "Bạn có thể tìm kiếm triệu chứng hoặc chọn từ danh sách."}
+          </p>
+        </div>
+        <span className="small muted">{filtered.length} mục</span>
+      </div>
+
+      {/* Search box */}
       <input
-        placeholder="Tìm triệu chứng (tiếng Anh hoặc tiếng Việt tạm thời)..."
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        style={{ width: "100%", padding: 8, marginBottom: 10, borderRadius: 8, border: "1px solid #ddd" }}
+        className="symptom-search"
+        placeholder="Tìm triệu chứng..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
       />
-      {loading ? (
-        <p className="empty">Đang tải danh sách triệu chứng...</p>
+
+      {/* Loading / Empty */}
+      {features.length === 0 ? (
+        <div className="text-center py-10 text-gray-500">
+          <p className="font-medium">Đang tải dữ liệu triệu chứng...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <p className="text-center text-gray-500 py-10">Không tìm thấy triệu chứng phù hợp.</p>
       ) : (
-        <>
-          {error && <div style={{ color: "crimson", marginBottom: 8 }}>Lỗi tải: {error}</div>}
-          <div style={{ maxHeight: 340, overflowY: "auto" }}>
-            {visible.length === 0 ? (
-              <p className="empty">Không tìm thấy triệu chứng</p>
-            ) : (
-              visible.map((s) => {
-                const meta = (mapping as any).symptoms?.[s] || {};
-                const label = meta?.vi || pretty(s);
-                return (
-                  <div key={s} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                    <button
-                      className="symptom-option"
-                      onClick={() => onAddSymptom(s)}
-                      style={{ flex: 1, textAlign: "left" }}
-                    >
-                      {label}
-                    </button>
-                    {symptomMeta[s] && symptomMeta[s].severity && (
-                      <small style={{ color: "#666" }}>sev:{symptomMeta[s].severity}</small>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </>
+        <ul className="symptom-options grid gap-3 max-h-[28rem] overflow-y-auto mt-3">
+          {filtered.slice(0, visibleCount).map((item) => (
+            <li
+              key={item.key}
+              className="symptom-option p-3 cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectSymptom(item.key)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectSymptom(item.key);
+                }
+              }}
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="text-gray-800 font-medium">{item.label}</div>
+                  {item.meta.description && (
+                    <div className="symptom-desc small muted">{item.meta.description}</div>
+                  )}
+                </div>
+                {item.meta.weight !== undefined && (
+                  <span className="symptom-tag">
+                    {item.meta.weight >= 7
+                      ? "Cao"
+                      : item.meta.weight >= 4
+                      ? "Trung bình"
+                      : "Thấp"}
+                  </span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
 
-      <p style={{ fontSize: 12, color: "#666", marginTop: 10 }}>
-        Ghi chú: danh sách lấy từ backend (English keys). Nếu bạn muốn hiển thị tiếng Việt đầy đủ, cập nhật file mapping EN↔VN.
-      </p>
+      {/* Load more */}
+      {filtered.length > visibleCount && (
+        <div className="mt-3 flex justify-center">
+          <button className="btn" onClick={() => setVisibleCount((v) => v + 10)}>
+            Xem thêm
+          </button>
+        </div>
+      )}
     </div>
   );
 };

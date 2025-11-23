@@ -1,104 +1,117 @@
-// src/Model/Model.tsx  (chỉ phần thay đổi / chú ý)
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import ThreeScene from "./ThreeScene";
-import SymptomsPanel from "./SymptomsPanel";
 import BodyPartInfo from "./BodyPartInfo";
+import SymptomsPanel from "./SymptomsPanel";
 import AnalysisResult from "./AnalysisResult";
+import { getModelFeatures, predictApi } from "../api/modelApi";
 import "../style/Model.css";
-import { predictApi } from "../api/modelApi";
 
-type Prediction = {
-  disease: string;
-  prob: number;
-  severity?: string;
-  urgency?: string;
-};
+// Kiểu dữ liệu trả về từ API cho features
+interface ModelData {
+  features: string[];
+  symptom_meta?: Record<string, { weight?: number; description?: string }>;
+  hotspot_regions?: string[];
+  hotspot_map?: Record<string, string[]>;
+}
+
+// Kiểu dữ liệu phân tích (AnalysisItem) theo backend mới
+export interface AnalysisItem {
+  topic: string;
+  related: string;
+  match_score: number;
+  description: string;
+  advice: string[];
+  warning_level: "low" | "medium" | "high";
+}
+
+// Kiểu dữ liệu triệu chứng tập trung
+export interface SymptomFocusItem {
+  symptom: string;
+  weight: number;
+  note: string;
+}
 
 const Model: React.FC = () => {
-  const [selectedBodyPart, setSelectedBodyPart] = useState<string | null>(null);
-  const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
-  const [predictions, setPredictions] = useState<Prediction[]>([]);
-  const [isAnalyzed, setIsAnalyzed] = useState(false);
+  const [selectedPart, setSelectedPart] = useState<string | null>(null);
+  const [symptoms, setSymptoms] = useState<string[]>([]);
+  const [modelData, setModelData] = useState<ModelData>({
+    features: [],
+    symptom_meta: {},
+    hotspot_regions: [],
+    hotspot_map: {},
+  });
+  const [analysis, setAnalysis] = useState<AnalysisItem[]>([]);
+  const [symptomFocus, setSymptomFocus] = useState<SymptomFocusItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [symptomMeta, setSymptomMeta] = useState<Record<string, any>>({});
-  const [error, setError] = useState<string | null>(null);
 
-  const handleAddSymptom = (symptom: string) => {
-    // thêm nếu chưa có, reset isAnalyzed => buộc người dùng bấm lại "Nhận kết quả"
-    setSelectedSymptoms((prev) => {
-      if (prev.includes(symptom)) return prev;
-      return [...prev, symptom];
+  // Lấy dữ liệu feature từ backend
+  useEffect(() => {
+    getModelFeatures().then((data) => {
+      setModelData({
+        features: data.features || [],
+        symptom_meta: data.symptom_meta || {},
+        hotspot_regions: data.hotspot_regions || [],
+        hotspot_map: data.hotspot_map || {},
+      });
     });
-    setIsAnalyzed(false);
-  };
+  }, []);
 
-  const handleRemoveSymptom = (symptom: string) => {
-    setSelectedSymptoms((prev) => prev.filter((s) => s !== symptom));
-    setIsAnalyzed(false);
-  };
-
-  const handleClearAll = () => {
-    setSelectedSymptoms([]);
-    setPredictions([]);
-    setIsAnalyzed(false);
-    setSymptomMeta({});
-    setError(null);
-  };
-
-  const normalizeForModel = (s: string) => s.trim().toLowerCase();
-
+  // Xử lý phân tích
   const handleAnalyze = async () => {
-    setError(null);
-    if (selectedSymptoms.length === 0) {
-      setError("Vui lòng chọn ít nhất 1 triệu chứng trước khi phân tích.");
-      return;
-    }
+    if (!symptoms.length) return alert("Chọn triệu chứng trước khi phân tích");
     setLoading(true);
     try {
-      const normalized = selectedSymptoms.map((s) => normalizeForModel(s));
-      const res = await predictApi(normalized, 6);
-      const preds = res.predictions || [];
-      setPredictions(preds);
-      setIsAnalyzed(true); // chỉ bật sau khi có kết quả
-      setSymptomMeta(res.symptom_meta || {});
-    } catch (err: any) {
-      console.error("Error calling predictApi:", err);
-      setError("Lỗi khi gọi server phân tích. Kiểm tra backend đang chạy (http://localhost:8000).");
-      setIsAnalyzed(false);
+      const data = await predictApi(symptoms);
+      setAnalysis(data.analysis || []);
+      setSymptomFocus(data.symptom_focus || []);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleClear = () => {
+    setSymptoms([]);
+    setSelectedPart(null);
+    setAnalysis([]);
+    setSymptomFocus([]);
+  };
+
   return (
-    <div className="diagnosis-container">
-      <div className="symptoms-panel">
+    <div className="diagnosis-layout">
+      {/* Left: Selected Symptoms */}
+      <aside className="left-col">
         <SymptomsPanel
-          symptoms={selectedSymptoms}
-          onRemove={handleRemoveSymptom}
-          onClear={handleClearAll}
+          symptoms={symptoms}
+          onRemove={(s) => setSymptoms(symptoms.filter((x) => x !== s))}
+          onClear={handleClear}
           onAnalyze={handleAnalyze}
         />
-        {error && <div style={{ marginTop: 10, color: "#b00020", fontSize: 14 }}>{error}</div>}
-        {loading && <div style={{ marginTop: 10, color: "#333", fontSize: 14 }}>Đang phân tích...</div>}
-      </div>
+      </aside>
 
-      <div className="model-view">
-        <h2 className="title">Hệ Thống Tư Vấn Sức Khỏe Qua Các Triệu Chứng</h2>
-        <p className="subtitle">Chọn vùng cơ thể, chọn các triệu chứng và nhận khuyến nghị sức khỏe</p>
-        <ThreeScene onSelectBodyPart={setSelectedBodyPart} />
-      </div>
+      {/* Center: 3D Model */}
+      <main className="center-col">
+        <ThreeScene onSelectBodyPart={setSelectedPart} />
+      </main>
 
-      <div className="body-info">
-        <BodyPartInfo selectedBodyPart={selectedBodyPart} onAddSymptom={handleAddSymptom} />
-
-        <AnalysisResult
-          predictions={predictions}
-          isAnalyzed={isAnalyzed}
-          selectedSymptoms={selectedSymptoms}
-          symptomMeta={symptomMeta}
+      {/* Right: Symptoms by Body Part + Analysis */}
+      <aside className="right-col">
+        <BodyPartInfo
+          bodyPart={selectedPart}
+          features={modelData.features} // bắt buộc
+          symptomMeta={modelData.symptom_meta} // optional
+          hotspotRegions={modelData.hotspot_regions} // optional
+          hotspotMap={modelData.hotspot_map} // optional
+          onSelectSymptom={(s) =>
+            setSymptoms((prev) => (prev.includes(s) ? prev : [...prev, s]))
+          }
         />
-      </div>
+
+        {loading && <p>Đang phân tích...</p>}
+
+        {analysis.length > 0 && (
+          <AnalysisResult analysis={analysis} symptom_focus={symptomFocus} />
+        )}
+      </aside>
     </div>
   );
 };
