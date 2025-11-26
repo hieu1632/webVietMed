@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 import "../style/ContentAbout.css"
 import "animate.css"
-const ContentAbout = forwardRef<HTMLDivElement>((props, ref) => {
+const ContentAbout = forwardRef<HTMLDivElement>((_, ref) => {
     
     return (
         <div ref={ref}>
