@@ -17,7 +17,7 @@ interface Product {
   Discount: number;
 };
 
-const ProductHome = forwardRef<HTMLDivElement>((props, ref) => {
+const ProductHome = forwardRef<HTMLDivElement>((_props, ref) => {
   const [products, setProducts] = useState<Product[]>([]);
   const navigate = useNavigate();
 

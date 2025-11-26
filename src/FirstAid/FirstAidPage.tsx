@@ -23,7 +23,7 @@ function getYouTubeEmbedUrl(url: string) {
 }
 
 
-const FirstAidPage = forwardRef<HTMLDivElement>((props, ref) => {
+const FirstAidPage = forwardRef<HTMLDivElement>((_props, ref) => {
   const [data, setData] = useState<FirstAidCase[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
